@@ -1,0 +1,7 @@
+# material properties for simulation
+# materials, in row order: sticky air, sediments, upper oceanic crust (basalts)
+# content of each row, see definition of Materials object in dataStructures for details on parameters:
+# standard density, thermal expansion, compressibility, viscosity model flag (0=const visc, 1=power law), viscosity (if constant), AD, n, Ea, Va, shear modulus, C0m C1, sin(FI0), sin(FI1), Gamma0, Gamma1, C_P, k0, a, Radiogenic heat production
+1.225, 3e-3, 1e-11, 0, 1e2, 0, 0, 0, 0, 1e20, 0, 0, 0, 0, 0, 1005, 1, 300, 0, 0 #Air
+1000,  3.5e-5, 1e-11, 0, 1e4, 0, 0, 0, 0, 2.2e9, 0, 0, 0, 0, 0, 1, 2093, 2.2, 0, 0 # Water
+2700,  3e-5, 1e-11, 0, 1e24, 0, 0, 0, 0, 2.5e10, 0, 0, 0, 0, 0, 1, 1000, 1.18, 474, 0 # Rock
