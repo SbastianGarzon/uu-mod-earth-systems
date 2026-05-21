@@ -7,7 +7,7 @@ import numpy as np
 
 from solver.dataStructures import Markers, Grid, Materials, ViscBox
 from solver.physics.boundaryConditions import BCs
-from models.common import uniformGrid
+from models.common import uniformGrid, updateGrid
 
 from numba import float64, int64, typeof
 from numba.types import unicode_type
@@ -36,8 +36,8 @@ def initializeModel():
     params = Parameters()
 
     # set resolution
-    xnum = 161
-    ynum = 241
+    xnum = 105
+    ynum = 83
 
     # instantiate/load material properties object
     matData = np.loadtxt('./material_properties.txt', delimiter=",")
@@ -72,12 +72,14 @@ def initializeModel():
     grid = Grid(xnum, ynum)
     
     # define grid points for evenly spaced grid
-    uniformGrid(params, grid)
+    #uniformGrid(params, grid)
+    updateGrid(params, grid, 0, params.tstp_max, BC.B_bottom)
+
 
     ############################################################################
     # create markers object
-    mnumx = 400
-    mnumy = 1200
+    mnumx = 1200
+    mnumy = 750
     markers = Markers(mnumx, mnumy)
 
     # initialize markers
@@ -120,19 +122,19 @@ def initialize_markers(markers, materials, params):
     MAT_ROCK = 2
 
     # basin geometry
-    border_lake_left = 1000
-    border_lake_right = 100
+    border_lake_left = 200
+    border_lake_right = 200
     slope_zone_width = 1000
-    air_metres = 5
-    depth_lake = 50
+    air_metres = 15
+    depth_lake = 40
 
     # free-surface setup
-    base_water_level = 7.0
+    base_water_level = 17.0
 
     # perturbation
     pert_amp    = 5.0      # height of displacement (m)
-    pert_center = 5000.0   # centre of disturbance (m)
-    zone_width  = 2000.0   # total width of disturbance (m) — zero outside this
+    pert_center = 3500.0   # centre of disturbance (m)
+    zone_width  = 150.0   # total width of disturbance (m) — zero outside this
 
     for j in range(markers.xnum):
         for i in range(markers.ynum):
@@ -169,16 +171,31 @@ def initialize_markers(markers, materials, params):
                 if y >= lake_floor:
                     markers.id[mm] = MAT_ROCK
 
+
+            ############# SINE PERTURBATION #############
+
             # perturbed initial water surface — sine taper (zero outside zone_width)
-            dist = (x - pert_center) / (zone_width / 2)
-            if abs(dist) < 1.0:
-                water_level = base_water_level - pert_amp * np.sin(np.pi * dist)
+            #dist = (x - pert_center) / (zone_width / 2)
+            #if abs(dist) < 1.0:
+            #    water_level = base_water_level - pert_amp * np.sin(np.pi * dist)
+            #else:
+            #    water_level = base_water_level
+
+            #if y > water_level and markers.id[mm] != MAT_ROCK:
+            #    markers.id[mm] = MAT_WATER
+
+            ############# Ellipe PERTURBATION #############
+
+            dx = x - pert_center
+            if abs(dx) < 150:
+                water_level = base_water_level + 5 * np.sqrt(1 - (dx/150)**2)
             else:
                 water_level = base_water_level
 
-            if y > water_level and markers.id[mm] != MAT_ROCK:
+            if y > base_water_level and y < water_level and markers.id[mm] != MAT_ROCK:
+                markers.id[mm] = MAT_AIR
+            elif y > water_level and y> base_water_level and markers.id[mm] != MAT_ROCK:
                 markers.id[mm] = MAT_WATER
-
             mm += 1
      
 
@@ -212,6 +229,17 @@ spec_par = [
     ('save_fig', int64),
     ('output_name', unicode_type),
     ('output_path', unicode_type),
+    ('bx', float64),
+    ('by', float64),
+    ('Nx', int64),
+    ('Ny', int64),
+    ('non_uni_xsize', float64),
+    ('const', int64),
+    ('N_left', int64),
+    ('N_right', int64),
+    ('b_end', float64),
+    ('Ny_end', int64),
+    ('by_end', float64),
     ('viscbox', typeof(ViscBox(0)))
 ]
 @jitclass(spec_par)
@@ -297,13 +325,13 @@ class Parameters():
         self.Rgas = 8.314                       # gas constant
         
         # physical model setup
-        self.xsize = 10000.0                        # physical x-size of model, m
+        self.xsize = 7000.0                        # physical x-size of model, m
         self.ysize = 60                      # physical y-size of model, m
         
         self.T_min = 273                        # Minimum allowed temperature in the simulation
         
         # viscosity model
-        self.eta_min = 1e2                      # minimum viscosity
+        self.eta_min = 1e-3                      # minimum viscosity
         self.eta_max = 1e25                     # maximum viscosity
         self.stress_min = 1e4                   # minimum stress
         self.eta_wt = 0                         # viscosity weighting, for (old?) visco-plastic model
@@ -311,11 +339,11 @@ class Parameters():
         
         
         # timestepping
-        self.t_end = 100000                     # end time
+        self.t_end = 100000                    # end time (Seconds)
         self.ntstp_max = 600                   # maximum number of timesteps
         self.Temp_stp_max = 1                  # maximum number of temperature substeps
         
-        self.tstp_max = 10      # maximum timestep
+        self.tstp_max = 10                     # maximum timestep (Seconds)
         
         # marker options
         self.marker_max = 0.3                   # maximum marker movement per timestep (fraction of av. grid step)
@@ -334,34 +362,25 @@ class Parameters():
         
         # output options
         self.save_output = 50                   # number of steps between output files
-        self.save_fig = 5                      # number of steps between figure output
+        self.save_fig = 5                       # number of steps between figure output
         self.output_name = "lakeSeiche_sine"         # name of the folder to write data to (within the main figures directory)
-        self.output_path = "../../Results/figures"
+        self.output_path = "../../Results/figures" # name of the folder to store the figures
         
         self.viscbox = ViscBox(0)               # high viscosity box, switched off
 
+        # grid spacing params - only required is using updateGrid()
+        self.bx = 20                           # x-grid spacing in high res area
+        self.by = 0.4                          # y-grid spacing in high res area
+        self.Nx = 30                           # number of unevenly spaced grid points either side of high res zone
+        self.Ny = 5                          # number of unvenly spaced grid points below high res zone
+        self.non_uni_xsize = 3260              # physical x-size of non-uniform grid region left of the high res zone
+        self.const = 1                         # flag which determines whether grid remains constant or not
+        
+        self.N_left = 10                       # number of additional uniform grid points at the right side of the grid in x-direction
+        self.N_right = 10                      # number of additional uniform grid points at the left side of the grid in x-direction
+        self.b_end = 200                       # grid spacing in uniform region at left and right side of the non-uniform region
+        self.Ny_end = 2                       # number of additional uniform grid points at the bottom of the grid in y-direction
+        self.by_end = 2                       # grid spacing in uniform region at upper edge  
 
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
 
-    # parameters from initialize_markers
-    xsize          = 10000.0
-    base_water_level = 7.0
-    pert_amp       = 5.0
-    pert_center    = 5000.0
-    pert_width     = 500.0
-    pert_offset    = 500.0
 
-    x = np.linspace(0, xsize, 1000)
-    left_lobe  = np.exp(-((x - (pert_center - pert_offset))**2) / (2.0 * pert_width**2))
-    right_lobe = np.exp(-((x - (pert_center + pert_offset))**2) / (2.0 * pert_width**2))
-    water_level = base_water_level + pert_amp * (left_lobe - right_lobe)
-
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.plot(x, water_level)
-    ax.axhline(base_water_level, color='grey', linestyle='--', label='undisturbed level (%.1f m)' % base_water_level)
-    ax.set(xlabel='x (m)', ylabel='Water surface height (m)', title='Initial water surface perturbation')
-    ax.invert_yaxis()
-    ax.legend()
-    fig.tight_layout()
-    plt.show()
