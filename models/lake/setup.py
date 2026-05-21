@@ -37,7 +37,7 @@ def initializeModel():
 
     # set resolution
     xnum = 105
-    ynum = 83
+    ynum = 41 #83
 
     # instantiate/load material properties object
     matData = np.loadtxt('./material_properties.txt', delimiter=",")
@@ -196,6 +196,7 @@ def initialize_markers(markers, materials, params):
                 markers.id[mm] = MAT_AIR
             elif y > water_level and y> base_water_level and markers.id[mm] != MAT_ROCK:
                 markers.id[mm] = MAT_WATER
+
             mm += 1
      
 
@@ -234,11 +235,13 @@ spec_par = [
     ('Nx', int64),
     ('Ny', int64),
     ('non_uni_xsize', float64),
+    ('non_uni_ysize', float64),
     ('const', int64),
     ('N_left', int64),
     ('N_right', int64),
     ('b_end', float64),
     ('Ny_end', int64),
+    ('Ny_start', int64),
     ('by_end', float64),
     ('viscbox', typeof(ViscBox(0)))
 ]
@@ -339,11 +342,11 @@ class Parameters():
         
         
         # timestepping
-        self.t_end = 100000                    # end time (Seconds)
+        self.t_end = 3000                    # end time (Seconds)
         self.ntstp_max = 600                   # maximum number of timesteps
         self.Temp_stp_max = 1                  # maximum number of temperature substeps
         
-        self.tstp_max = 10                     # maximum timestep (Seconds)
+        self.tstp_max = 0.01                     # maximum timestep (Seconds)
         
         # marker options
         self.marker_max = 0.3                   # maximum marker movement per timestep (fraction of av. grid step)
@@ -372,15 +375,17 @@ class Parameters():
         self.bx = 20                           # x-grid spacing in high res area
         self.by = 0.4                          # y-grid spacing in high res area
         self.Nx = 30                           # number of unevenly spaced grid points either side of high res zone
-        self.Ny = 5                          # number of unvenly spaced grid points below high res zone
-        self.non_uni_xsize = 3260              # physical x-size of non-uniform grid region left of the high res zone
+        self.Ny = 8                            # number of unvenly spaced grid points below high res zone
+        self.non_uni_xsize = 3260              # physical x-size of non-uniform grid region left of the high res zone #4750
+        self.non_uni_ysize = 13                # physical y-size of non-uniform region above the high res zone
         self.const = 1                         # flag which determines whether grid remains constant or not
         
         self.N_left = 10                       # number of additional uniform grid points at the right side of the grid in x-direction
         self.N_right = 10                      # number of additional uniform grid points at the left side of the grid in x-direction
         self.b_end = 200                       # grid spacing in uniform region at left and right side of the non-uniform region
-        self.Ny_end = 2                       # number of additional uniform grid points at the bottom of the grid in y-direction
-        self.by_end = 2                       # grid spacing in uniform region at upper edge  
+        self.Ny_start = 1                      # number of additional grid points at the top in y-direction 
+        self.Ny_end = 3                        # number of additional uniform grid points at the bottom of the grid in y-direction
+        self.by_end = 10                        # grid spacing in uniform region at upper edge  
 
 
 
