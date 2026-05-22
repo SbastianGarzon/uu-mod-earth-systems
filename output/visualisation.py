@@ -237,7 +237,7 @@ def getMarkerPixelGrid(params, markers, grid, xres):
     
     # define the image resolution - set by xres
     # but proportional to the grid size in each direction
-    yres = int(params.ysize/params.xsize*xres) + 1
+    yres = max(int(params.ysize/params.xsize*xres) + 1, 300) #newcode
     
     
     ngrid = 2
@@ -370,7 +370,9 @@ def plotMarkers_lithology(params, markers, grid, ntstp, t_curr, xlims, ylims, as
     '''
 
     # get the mapping of markers to pixel positions
-    marker_map = getMarkerPixelGrid(params, markers, grid, 401)
+    target_yres = 400 # new code
+    xres = int(target_yres * params.xsize / params.ysize) #new code
+    marker_map = getMarkerPixelGrid(params, markers, grid, 401) #newcode
     mark_com = getMarkerField(marker_map, markers.id)
 
     # get aspect ratio
