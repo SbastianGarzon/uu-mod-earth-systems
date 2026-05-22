@@ -52,7 +52,7 @@ if (os.path.exists(f"{params.output_path}/{params.output_name}")==False):
 
 # buoys every 500m, skipping rock margins (x < 1500m and x > 8500m)
 dx = params.xsize / (grid.xnum - 1)
-buoy_xs = np.arange(1500, 9000, 500)          # [1500, 2000, ..., 8500]
+buoy_xs = np.arange(1500, 6500, 500)          # [1500, 2000, ..., 6500]
 buoy_js = [int(round(x / dx)) for x in buoy_xs]
 buoy_times = []
 buoy_surfaces = [[] for _ in buoy_js]
