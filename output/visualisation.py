@@ -370,8 +370,6 @@ def plotMarkers_lithology(params, markers, grid, ntstp, t_curr, xlims, ylims, as
     '''
 
     # get the mapping of markers to pixel positions
-    target_yres = 400 # new code
-    xres = int(target_yres * params.xsize / params.ysize) #new code
     marker_map = getMarkerPixelGrid(params, markers, grid, 401) #newcode
     mark_com = getMarkerField(marker_map, markers.id)
 
