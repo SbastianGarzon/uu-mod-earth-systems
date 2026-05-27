@@ -13,9 +13,14 @@ from numba import float64, int64, typeof
 from numba.types import unicode_type
 from numba.experimental import jitclass
 
-def initializeModel():
+def initializeModel(perturbation_type='ricker'):
     '''
     Sets up the initial state of the model, including BCs and output settings.
+
+    Parameters
+    ----------
+    perturbation_type : str
+        Initial surface perturbation shape: 'ricker' (mass-conserving) or 'ellipse'.
 
     Returns
     -------
@@ -28,15 +33,19 @@ def initializeModel():
     markers : Markers
         Initialized markers object.
     BC : BCs Class
-        Object containing all boundary condition arrays for velocity, pressure and temperature 
+        Object containing all boundary condition arrays for velocity, pressure and temperature
 
     '''
-    
+
     # instantiate a pre-populated parameters object
     params = Parameters()
 
+    # auto-name output folder from perturbation type and timestep
+    tstp_str = str(params.tstp_max).replace('.', '_')
+    params.output_name = 'lake_' + perturbation_type + '_tstp_' + tstp_str
+
     # set resolution
-    xnum = 105
+    xnum = 90
     ynum = 41 #83
 
     # instantiate/load material properties object
@@ -78,18 +87,18 @@ def initializeModel():
 
     ############################################################################
     # create markers object
-    mnumx = 1200
+    mnumx = 1029
     mnumy = 750
     markers = Markers(mnumx, mnumy)
 
     # initialize markers
-    initialize_markers(markers, materials, params)
+    initialize_markers(markers, materials, params, perturbation_type)
     
     return params, grid, materials, markers, BC
            
            
 
-def initialize_markers(markers, materials, params):
+def initialize_markers(markers, materials, params, perturbation_type='ricker'):
     '''
     Initialize the positions, material ID and temperature of the markers.
 
@@ -120,6 +129,7 @@ def initialize_markers(markers, materials, params):
     MAT_AIR = 0
     MAT_WATER = 1
     MAT_ROCK = 2
+    MAT_SURFACE = 3
 
     # basin geometry
     border_lake_left = 200
@@ -131,10 +141,22 @@ def initialize_markers(markers, materials, params):
     # free-surface setup
     base_water_level = 17.0
 
-    # perturbation
-    pert_amp    = 5.0      # height of displacement (m)
-    pert_center = 3500.0   # centre of disturbance (m)
-    zone_width  = 150.0   # total width of disturbance (m) — zero outside this
+    # 'ricker'  : Ricker wavelet — mass-conserving, depression + side crests
+    # 'ellipse' : half-ellipse depression (not mass-conserving)
+
+    # shared
+    pert_center = 3000.0   # centre of disturbance (m)
+
+    # Ricker wavelet parameters
+    mh_amp    = 2.0    # amplitude of central depression (m)
+    mh_sigma  = 100.0  # width parameter (m): crests peak at |dx|=sigma
+    mh_extent = 3.0    # cutoff at mh_extent * mh_sigma
+
+    # ellipse parameters
+    el_amp   = 5.0     # depth of depression (m)
+    el_width = 300.0   # total width of half-ellipse (m)
+
+    surface_thickness = 2 * mystp  # thin band of surface-tracer markers at the air-water interface
 
     for j in range(markers.xnum):
         for i in range(markers.ynum):
@@ -153,49 +175,45 @@ def initialize_markers(markers, materials, params):
 
             # left slope
             if (x > border_lake_left) and (x < border_lake_left + slope_zone_width):
-                lake_floor = air_metres + depth_lake * ((x - border_lake_left) / slope_zone_width)
+                frac = (x - border_lake_left) / slope_zone_width
+                lake_floor = air_metres + (base_water_level + depth_lake - air_metres) * frac
                 if y >= lake_floor:
                     markers.id[mm] = MAT_ROCK
 
             # deep basin
             if (x > border_lake_left + slope_zone_width) and (x < params.xsize - border_lake_right - slope_zone_width):
-                lake_floor = depth_lake + air_metres
+                lake_floor = base_water_level + depth_lake
                 if y >= lake_floor:
                     markers.id[mm] = MAT_ROCK
 
             # right slope
             if (x > params.xsize - border_lake_right - slope_zone_width) and (x < params.xsize - border_lake_right):
-                lake_floor = depth_lake + air_metres - (
-                    depth_lake * (x - (params.xsize - border_lake_right - slope_zone_width)) / slope_zone_width
-                )
+                frac = (x - (params.xsize - border_lake_right - slope_zone_width)) / slope_zone_width
+                lake_floor = base_water_level + depth_lake - (base_water_level + depth_lake - air_metres) * frac
                 if y >= lake_floor:
                     markers.id[mm] = MAT_ROCK
 
-
-            ############# SINE PERTURBATION #############
-
-            # perturbed initial water surface — sine taper (zero outside zone_width)
-            #dist = (x - pert_center) / (zone_width / 2)
-            #if abs(dist) < 1.0:
-            #    water_level = base_water_level - pert_amp * np.sin(np.pi * dist)
-            #else:
-            #    water_level = base_water_level
-
-            #if y > water_level and markers.id[mm] != MAT_ROCK:
-            #    markers.id[mm] = MAT_WATER
-
-            ############# Ellipe PERTURBATION #############
-
+            # --- water surface perturbation ---
             dx = x - pert_center
-            if abs(dx) < 150:
-                water_level = base_water_level + 5 * np.sqrt(1 - (dx/150)**2)
-            else:
-                water_level = base_water_level
 
-            if y > base_water_level and y < water_level and markers.id[mm] != MAT_ROCK:
-                markers.id[mm] = MAT_AIR
-            elif y > water_level and y> base_water_level and markers.id[mm] != MAT_ROCK:
-                markers.id[mm] = MAT_WATER
+            if perturbation_type == 'ricker':
+                if abs(dx) < mh_extent * mh_sigma:
+                    nd = dx / mh_sigma
+                    water_level = base_water_level + mh_amp * (1.0 - 2.0*nd**2) * np.exp(-nd**2)
+                else:
+                    water_level = base_water_level
+
+            else:  # ellipse
+                if abs(dx) < el_width / 2:
+                    water_level = base_water_level + el_amp * np.sqrt(1.0 - (dx / (el_width/2))**2)
+                else:
+                    water_level = base_water_level
+
+            if y > water_level and markers.id[mm] != MAT_ROCK:
+                if y < water_level + surface_thickness:
+                    markers.id[mm] = MAT_SURFACE
+                else:
+                    markers.id[mm] = MAT_WATER
 
             mm += 1
      
@@ -328,7 +346,7 @@ class Parameters():
         self.Rgas = 8.314                       # gas constant
         
         # physical model setup
-        self.xsize = 7000.0                        # physical x-size of model, m
+        self.xsize = 6000.0                        # physical x-size of model, m
         self.ysize = 60                      # physical y-size of model, m
         
         self.T_min = 273                        # Minimum allowed temperature in the simulation
@@ -346,7 +364,7 @@ class Parameters():
         self.ntstp_max = 600                   # maximum number of timesteps
         self.Temp_stp_max = 1                  # maximum number of temperature substeps
         
-        self.tstp_max = 0.01                     # maximum timestep (Seconds)
+        self.tstp_max = 0.1                     # maximum timestep (Seconds)
         
         # marker options
         self.marker_max = 0.3                   # maximum marker movement per timestep (fraction of av. grid step)
@@ -365,8 +383,8 @@ class Parameters():
         
         # output options
         self.save_output = 50                   # number of steps between output files
-        self.save_fig = 5                       # number of steps between figure output
-        self.output_name = "lakeSeiche_sine"         # name of the folder to write data to (within the main figures directory)
+        self.save_fig = 10                     # number of steps between figure output
+        self.output_name = "default"           # overwritten by initializeModel(); required for jitclass initialisation
         self.output_path = "../../Results/figures" # name of the folder to store the figures
         
         self.viscbox = ViscBox(0)               # high viscosity box, switched off
@@ -376,8 +394,8 @@ class Parameters():
         self.by = 0.4                          # y-grid spacing in high res area
         self.Nx = 30                           # number of unevenly spaced grid points either side of high res zone
         self.Ny = 8                            # number of unvenly spaced grid points below high res zone
-        self.non_uni_xsize = 3260              # physical x-size of non-uniform grid region left of the high res zone #4750
-        self.non_uni_ysize = 13                # physical y-size of non-uniform region above the high res zone
+        self.non_uni_xsize = 2800              # physical x-size of non-uniform grid region left of the high res zone
+        self.non_uni_ysize = 15                # physical y-size of non-uniform region above the high res zone
         self.const = 1                         # flag which determines whether grid remains constant or not
         
         self.N_left = 10                       # number of additional uniform grid points at the right side of the grid in x-direction

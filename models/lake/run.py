@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Example script for running a model.
+Usage:
+    python run.py [perturbation_type]
 
-Example script for running a model
-
+    perturbation_type : 'ricker' (default) or 'ellipse'
 """
 
 # external library imports
@@ -20,7 +22,9 @@ sys.path.append("../../") # required so that we can find the rest of the code fr
 from solver.dataStructures import Grid
 from solver.main import step
 from setup import initializeModel
-from visualisation import makePlots, makeLithologyPlot
+from visualisation import makePlots, makeLithologyPlot, makeMarkerMaterialPlot
+from plot_hovmoller import plot as plot_hovmoller
+from plot_surface_animation import plot as plot_surface_animation
 
 
 ###############################################################################
@@ -33,11 +37,15 @@ os.environ["NUMBA_DISABLE_JIT"] = "0"
 # if 1 prints out extra statements at various places in the timeloop
 debug = 1
 
+# parse perturbation type from command line (default: 'ricker')
+perturbation_type = sys.argv[1] if len(sys.argv) > 1 else 'ricker'
+print('Perturbation type: %s' % perturbation_type)
+
 
 ###############################################################################
 # step 1 : initialize the model run
 ###############################################################################
-params, grid, materials, markers, BC = initializeModel()
+params, grid, materials, markers, BC = initializeModel(perturbation_type)
 
 # initialize grid0 for old values
 grid0 = Grid(grid.xnum, grid.ynum)
@@ -50,19 +58,17 @@ timestep = params.tstp_max
 if (os.path.exists(f"{params.output_path}/{params.output_name}")==False):
     os.makedirs(f"{params.output_path}/{params.output_name}")
 
-# buoys every 500m, skipping rock margins (x < 1500m and x > 8500m)
-dx = params.xsize / (grid.xnum - 1)
-buoy_xs = np.arange(1500, 6500, 500)          # [1500, 2000, ..., 6500]
-buoy_js = [int(round(x / dx)) for x in buoy_xs]
+MAT_SURFACE = 3
+buoy_xs = np.arange(200, 5801, 100, dtype=float)  # flat basin only, avoid margins and slopes
 buoy_times = []
-buoy_surfaces = [[] for _ in buoy_js]
+buoy_surfaces = [[] for _ in buoy_xs]
 
 
 ###############################################################################
 # step 2: time loop
 ###############################################################################
 for nt in range(0, params.ntstp_max):
-    
+
     ###########################################################################
     # do a timestep
     step(params, grid, materials, markers, BC, timestep, nt, grid0, debug)
@@ -72,33 +78,34 @@ for nt in range(0, params.ntstp_max):
     # visualization
     if (nt%(params.save_fig)==0):
         print('plotting')
-        
+
         # wrapper for calling whatever custom plots are defined in setup.py
         makePlots(grid, markers, params, nt, time_curr)
-        makeLithologyPlot(grid, markers, params, nt, time_curr)
-        
+        #makeLithologyPlot(grid, markers, params, nt, time_curr)
+        makeMarkerMaterialPlot(markers, params, nt, time_curr)
+
 
     ###########################################################################
-    # record buoys: find shallowest water cell at each buoy position
-    for b, j in enumerate(buoy_js):
-        for i in range(grid.ynum):
-            if grid.rho[i, j] > 500:
-                buoy_surfaces[b].append(grid.y[i])
-                break
+    # record buoys: find the closest MAT_SURFACE marker to each buoy x position
+    mx  = np.asarray(markers.x[:markers.num])
+    my  = np.asarray(markers.y[:markers.num])
+    mid = np.asarray(markers.id[:markers.num])
+    surf_mx = mx[mid == MAT_SURFACE]
+    surf_my = my[mid == MAT_SURFACE]
+    band = 50.0  # m either side of buoy x
+    for b, bx in enumerate(buoy_xs):
+        in_band = np.abs(surf_mx - bx) <= band
+        if in_band.any():
+            buoy_surfaces[b].append(float(np.mean(surf_my[in_band])))
+        elif buoy_surfaces[b]:
+            buoy_surfaces[b].append(buoy_surfaces[b][-1])
+        else:
+            buoy_surfaces[b].append(float('nan'))
     buoy_times.append(time_curr)
-
-    ###########################################################################
-    # advance timestep
-
     time_curr += timestep
     print('Time: %.3f s' % time_curr)
 
-    
-    ###########################################################################
-    # Make any model-specific adjustments 
-    # eg. for a moving grid, update the grid positions
-    
-        
+
     ###########################################################################
     # exit if final time is reached
     if (time_curr >= params.t_end):
@@ -106,20 +113,37 @@ for nt in range(0, params.ntstp_max):
         print('t_end reached, exiting loop')
         break
 
-end = time() - strt
-print('time elapsed: %f'%(end))
+elapsed = time() - strt
+print('time elapsed: %f' % elapsed)
 
+###############################################################################
 # save buoy data to CSV
-header = 'time,' + ','.join('x%.0f' % grid.x[j] for j in buoy_js)
+###############################################################################
+csv_path = '%s/%s/buoy.csv' % (params.output_path, params.output_name)
+header = 'time,' + ','.join('x%.0f' % bx for bx in buoy_xs)
 data = np.column_stack([buoy_times] + buoy_surfaces)
-np.savetxt('%s/%s/buoy.csv' % (params.output_path, params.output_name),
-           data, delimiter=',', header=header, comments='')
+np.savetxt(csv_path, data, delimiter=',', header=header, comments='')
 
-# Hovmoller diagram: time on x-axis, buoy position on y-axis, surface height as colour
-buoy_matrix = np.array(buoy_surfaces)   # shape (n_buoys, n_times)
-fig, ax = plt.subplots(figsize=(12, 5))
-im = ax.pcolor(buoy_times, buoy_xs, buoy_matrix, shading='nearest', cmap='RdBu_r')
-fig.colorbar(im, ax=ax, label='Water surface height (m)')
-ax.set(xlabel='Time (s)', ylabel='x position (m)', title='Buoy records — Hovmöller diagram')
-fig.tight_layout()
-fig.savefig('%s/%s/buoy.png' % (params.output_path, params.output_name)) 
+###############################################################################
+# save timing summary
+###############################################################################
+timing_path = '%s/%s/timing.txt' % (params.output_path, params.output_name)
+with open(timing_path, 'w') as f:
+    f.write('perturbation_type: %s\n' % perturbation_type)
+    f.write('tstp_max:          %.4f s\n' % params.tstp_max)
+    f.write('ntstp_max:         %d\n' % params.ntstp_max)
+    f.write('steps_run:         %d\n' % (nt + 1))
+    f.write('t_end_reached:     %.3f s\n' % time_curr)
+    f.write('elapsed:           %.2f s\n' % elapsed)
+print('Timing saved to', timing_path)
+
+###############################################################################
+# post-processing plots
+###############################################################################
+print('Generating Hovmoller diagram...')
+plot_hovmoller(csv_path,
+               '%s/%s/hovmoller.png' % (params.output_path, params.output_name))
+
+print('Generating surface animation...')
+plot_surface_animation(csv_path,
+                       '%s/%s/surface_animation.gif' % (params.output_path, params.output_name))

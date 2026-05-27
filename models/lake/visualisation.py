@@ -81,6 +81,33 @@ def makePlots(grid, markers, params, ntstp, t_curr):
     fig.savefig('%s/%s/summary_%i.png' % (params.output_path, params.output_name, ntstp))
 
 
+def makeMarkerMaterialPlot(markers, params, ntstp, t_curr):
+    """
+    Plot material ID directly from marker positions using a scatter plot.
+    Air = light blue, Water = blue, Rock = brown, Surface = yellow.
+    """
+    cmap = ListedColormap(['#cce5ff', '#1a6faf', '#8B6347', '#FFD700'])
+    norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], cmap.N)
+
+    fig = figure.Figure(figsize=(18, 4), constrained_layout=True)
+    ax  = fig.subplots(1, 1)
+
+    sc = ax.scatter(
+        markers.x[:markers.num], markers.y[:markers.num],
+        c=markers.id[:markers.num], cmap=cmap, norm=norm,
+        s=1, linewidths=0,
+    )
+
+    cbar = fig.colorbar(sc, ax=ax, ticks=[0, 1, 2, 3], pad=0.0)
+    cbar.ax.set_yticklabels(['Air', 'Water', 'Rock', 'Surface'])
+
+    ax.set(xlabel='x (m)', ylabel='y (m)', title='Material (markers)',
+           xlim=(0, params.xsize), ylim=(0, params.ysize))
+    ax.invert_yaxis()
+    fig.suptitle('Time: %.3f s' % t_curr)
+    fig.savefig('%s/%s/marker_material_%i.png' % (params.output_path, params.output_name, ntstp))
+
+
 def makeLithologyPlot(grid, markers, params, ntstp, t_curr):
     """
     Plot lithology (material ID) from markers using a discrete 3-colour colormap.
@@ -90,9 +117,9 @@ def makeLithologyPlot(grid, markers, params, ntstp, t_curr):
     marker_map = getMarkerPixelGrid(params, markers, grid, 401)
     mark_ids   = getMarkerField(marker_map, markers.id)
 
-    # discrete colormap: 0=air, 1=water, 2=rock
-    cmap = ListedColormap(['#cce5ff', '#1a6faf', '#8B6347'])
-    norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5], cmap.N)
+    # discrete colormap: 0=air, 1=water, 2=rock, 3=surface tracer
+    cmap = ListedColormap(['#cce5ff', '#1a6faf', '#8B6347', '#FFD700'])
+    norm = BoundaryNorm([-0.5, 0.5, 1.5, 2.5, 3.5], cmap.N)
 
     fig = figure.Figure(figsize=(18, 4), constrained_layout=True)
     ax  = fig.subplots(1, 1)
@@ -100,8 +127,8 @@ def makeLithologyPlot(grid, markers, params, ntstp, t_curr):
     im = ax.imshow(mark_ids, origin='upper', aspect='auto', cmap=cmap, norm=norm,
                    extent=[0, params.xsize, params.ysize, 0])
 
-    cbar = fig.colorbar(im, ax=ax, ticks=[0, 1, 2], pad=0.0)
-    cbar.ax.set_yticklabels(['Air', 'Water', 'Rock'])
+    cbar = fig.colorbar(im, ax=ax, ticks=[0, 1, 2, 3], pad=0.0)
+    cbar.ax.set_yticklabels(['Air', 'Water', 'Rock', 'Surface'])
 
     ax.set(xlabel='x (m)', ylabel='y (m)', title='Lithology')
     fig.suptitle('Time: %.3f s' % t_curr)
